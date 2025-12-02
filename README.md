@@ -1,115 +1,97 @@
-# Node.js HTTP Server with Logging
+# HTTP Server
 
-This is a lightweight HTTP server built using only Node.js core modules—**http**, **fs**, and **url**.  
-It demonstrates basic routing, handling multiple HTTP methods, parsing JSON payloads, and appending logs for each request.  
+Built a basic HTTP/1.1 server using Node.js `net` module (raw TCP sockets) without `http.createServer()` or any HTTP parsing libraries.
 
----
+## How It Works
 
-## Features
+1. **TCP Server**: `net.createServer()` listens on port 8080 for raw socket connections
+2. **Manual HTTP Parsing**:
+   - Receive raw data chunks → convert to string
+   - Split on `\r\n\r\n` to separate headers from body
+   - First line → `METHOD PATH HTTP/1.1` (detects GET/POST etc.)
+   - Loop through header lines → split on `: ` to build headers object
+3. **Routing**: Match `method + path` against the routes object
+4. **Manual Response**: Build HTTP response string → `HTTP/1.1 200 OK\r\nHeaders\r\n\r\nBody`
+5. **Logging**: All requests logged to `log.txt` with timestamps
 
-- **Custom Routing:** Handles `/`, `/about`, `/Signup`, `/update`, `/modify`, `/delete` with correct HTTP methods.
-- **Request Logging:** Every request (method, url, time) is appended to `log.txt`.
-- **Body Parsing:** Supports JSON body parsing for POST requests to `/Signup`.
-- **Query Parsing:** Reads query params (e.g., `/about?myname=...`).
-- **Status Codes:** Sends proper codes for success, method errors, or `404` for unknown routes.
-- **Plaintext Responses:** For clarity and learning (switch to JSON easily if needed).
-- **No External Packages:** Only Node's built-in modules.
+## Routes
 
----
+- `GET /` → Returns `"Welcome to Homepage!"`
+- `GET /about` → Returns `"Hey, I am [myname]"` (using query parameter)
+- `GET /Signup` → Returns an HTML sign-up form
+- `POST /Signup` → Parses form data and returns `"Sign up successful!"`
+- `PUT /update` → Returns `"Data Updated Successfully"`
+- `PATCH /modify` → Returns `"Data Modified Successfully"`
+- `DELETE /delete` → Returns `"Data Deleted Successfully"`
 
-## Endpoints
+## Key Files
 
-### `/` (Home)
-- **GET**
-- Returns: `Welcomme to the HomePage`
+- `log.txt` — automatically stores all incoming request logs with timestamp
+- No external dependencies or `node_modules` committed/used
 
-### `/about`
-- **GET**
-- Query parameter: `myname` (optional)
-- Returns: `Hey, I am <myname>` or `Hey, I am Guest`
+## Error Handling
 
-### `/Signup`
-- **GET**: Returns `This is a signUp Form`
-- **POST**: Accepts JSON body. Returns `Success` if valid, else `Request Failed` (400 error).
+- Returns `400 Bad Request` for parsing errors
+- Returns `404 Not Found` for unknown routes
+- Handles socket errors gracefully
+- Supports graceful shutdown on Ctrl+C (SIGINT)
 
-### `/update`
-- **PUT**
-- Returns: `Data Updated Successfully`
+## Installation & Usage
 
-### `/modify`
-- **PATCH**
-- Returns: `Data modified successfully`
+1. Make sure you have Node.js installed
+2. Run the server:
 
-### `/delete`
-- **DELETE**
-- Returns: `Data removed Successfully`
-
-### Everything Else
-- Returns: `404 Not Found`
-
----
-
-## Logging
-
-Every request is appended to a file called **log.txt** in this format:
+```bash
+node server.js
 ```
-Example: 1733040000000: GET /about?myname=Divya New request Recieved
+
+The server will start on `http://localhost:8080`
+
+## Testing
+
+### Using curl
+
+```bash
+# Test GET /
+curl http://localhost:8080/
+
+# Test GET /about with query param
+curl "http://localhost:8080/about?myname=John"
+
+# Test GET /Signup (HTML form)
+curl http://localhost:8080/Signup
+
+# Test POST /Signup
+curl -X POST -d "username=test&email=test@test.com" http://localhost:8080/Signup
+
+# Test PUT /update
+curl -X PUT http://localhost:8080/update
+
+# Test PATCH /modify
+curl -X PATCH http://localhost:8080/modify
+
+# Test DELETE /delete
+curl -X DELETE http://localhost:8080/delete
+
+# Test 404 Not Found
+curl http://localhost:8080/unknown
 ```
----
 
-## Usage
+### Using Browser
 
-1. **Install Node.js** if not already installed.
-2. Save the code as (for example) `server.js`.
-3. Open terminal in your project directory.
-4. Start your server:
-    ```
-    node server.js
-    ```
-5. You should see:
-    ```
-    Server Started on port 8080
-    ```
-6. Test endpoints with your browser, curl, or Postman.
+Open your browser and navigate to:
+- `http://localhost:8080/` — Homepage
+- `http://localhost:8080/about?myname=YourName` — About page
+- `http://localhost:8080/Signup` — Sign up form
 
-### Example Curl Commands
+## How to Understand the Code
 
-- Home:
-    ```
-    curl http://localhost:8080/
-    ```
-- About (with query param):
-    ```
-    curl "http://localhost:8080/about?myname=Divya"
-    ```
-- Signup POST:
-    ```
-    curl -X POST http://localhost:8080/Signup \
-      -H "Content-Type: application/json" \
-      -d "{\"username\":\"divya\",\"password\":\"12345\"}"
-    ```
-- Update (PUT):
-    ```
-    curl -X PUT http://localhost:8080/update
-    ```
-- Modify (PATCH):
-    ```
-    curl -X PATCH http://localhost:8080/modify
-    ```
-- Delete (DELETE):
-    ```
-    curl -X DELETE http://localhost:8080/delete
-    ```
+The server works in 3 main functions:
 
----
+1. **parseHttpRequest()** - Takes raw HTTP text and extracts method, path, headers, and body
+2. **sendResponse()** - Builds an HTTP response string with status, headers, and body
+3. **socket.on('data')** - Receives incoming requests, parses them, routes them, and sends responses
 
-## Notes & Customization
+The `routes` object maps `method + path` combinations to handler functions that generate responses.
 
-- Change/add routes easily within the switch-case block.
-- Log file grows over time; delete/reset as needed.
-- For a real app, add validation, more meaningful responses, and connect to a database.
-- All responses are plaintext; change content type in `sendResponese()` helper for JSON.
-
----
-This is not completd ,I am working on it
 
