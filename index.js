@@ -1,118 +1,215 @@
-const http = require("http"); // built-in pakage in nodejs
-const fs = require("fs");  // fs module
-const url = require("url"); // for url parsing (external module)
+const net = require('net');
+const fs = require('fs');
+const url = require('url');
 
 const PORT = 8080;
 
-const myServer = http.createServer((req, res) => {
-    // console.log("New request recieve");   
-    const log = `${Date.now()}: ${req.method} ${req.url} New request Recieved\n` // we can give path using url(url is the userfriendly name for IP address)
 
-    //console.log(myUrl);
-    //console.log(req.headers); // headers have some extra imformations(in very big object)
-    // res.end("Welcome to my Server!");  //handler which process incoming request
+function parseHttpRequest(rawData) {
 
-    fs.appendFile('log.txt', log, (err, data) => {
-        if (err) {
-            console.eoor('Error writing log', err);
-            res.end(err);
-        }
-        const myUrl = url.parse(req.url, true);
-        //Here always do non-blocking task, otherwise user have to wait
+  const [headerSection, ...bodyParts] = rawData.split('\r\n\r\n');
+  const headerLines = headerSection.split('\r\n');
 
-        //Helper to send response with header
-        function sendResponese(statusCode, body, contentType = "text/Plain") {
-            res.writeHead(statusCode, {
-                "Content-Type": contentType,
-                "Content-Length": Buffer.byteLength(body),
-                "Date": new Date().toUTCString(),
-                "Connection": "close"
-            });
-            res.end(body);
-        }
+  const requestLine = headerLines[0];
+  const [method, pathname, httpVersion] = requestLine.split(' ');
+ 
+  const headers = {};
+  for (let i = 1; i < headerLines.length; i++) {
+    const [key, value] = headerLines[i].split(': ');
+    if (key) {
+      headers[key.toLowerCase()] = value;
+    }
+  }
+  
+  const parsedUrl = url.parse(pathname, true);
+  
+  return {
+    method,
+    path: parsedUrl.pathname,
+    query: parsedUrl.query,
+    httpVersion,
+    headers,
+    body: bodyParts.join('\r\n\r\n'),
+    fullPath: pathname
+  };
+}
 
-        //Helper to read request body (JSON expected)
-        function readRequestBody(callback) {
-            let body = '';
-            req.on("data", chunk => { body += chunk; });
-            req.on("end", () => {
-                try {
-                    const parsed = JSON.parse(body);
-                    callback(null, parsed);
-                }
-                catch (e) {
-                    callback(e);
-                }
-            });
-        }
+function sendResponse(socket, statusCode, statusMessage, body, contentType = 'text/plain') {
+  const headers = {
+    'Content-Type': contentType,
+    'Content-Length': Buffer.byteLength(body),
+    'Connection': 'close'
+  };
+  
+  let response = `HTTP/1.1 ${statusCode} ${statusMessage}\r\n`;
+  
 
-
-        switch (myUrl.pathname) {
-            case '/':
-                if (req.method === 'GET') {
-                    sendResponese(200, "Welcomme to the HomePage");
-                }
-                break;
-
-            case '/about':
-                const username = myUrl.query.myname || "Guest";
-                sendResponese(200, `Hey, I am ${username}`);
-                break;
-
-            case '/Signup':
-                if (req.method === 'GET') {
-                    sendResponese(200, 'This is a signUp Form');
-                }
-                else if (req.method === 'POST') {//Data-base Query
-                    readRequestBody((err, data) => {
-                        if (err) {
-                            sendResponese(400, 'Request Failed');//Invallid JSON
-                        }
-                        else {
-                            sendResponese(200, 'Success');
-                        }
-                    });
-
-                }
-                else {
-                    sendResponese(405, "Method Not Allowed");
-                }
-                break;
-
-            case '/update':
-                if (req.method === 'PUT') {
-                    res.end('Data Updated Successfully');
-                }
-                break;
-
-            case '/modify':
-                if (req.method === 'PATCH') {
-                    res.end("Data modified successfully");
-                }
-                break;
-
-            case '/delete':
-                if (req.method === 'DELETE') {
-                    res.end('Data removed Successfully');
-                }
-                break;
-
-            default:
-                res.statusCode = 404; // Set respone status code for not found
-                res.end("404 Not Found");
-        }
-
-    });
-
-}); // this function create webserver ,its have wo arguments-> request and response
-
-// To run the serevr we need Port number
-//Ek port pr ek hi server chal skta he
-myServer.listen(8080, () => console.log(`Server Started on port ${PORT}`));
+  for (const [key, value] of Object.entries(headers)) {
+    response += `${key}: ${value}\r\n`;
+  }
+  
+  response += '\r\n';
+  
+ 
+  socket.write(response + body);
+}
 
 
-// GET = To get the data from the server
-// POST = To send the data to the server
-// PUT = When we have to put something in our data(update entire resouce)
-// PAtch = when we wants to change/edit
-// Delete = when we wnts to delete from DB
+function logRequest(method, path, callback) {
+  const timestamp = new Date().toISOString();
+  const logEntry = `${timestamp} - ${method} ${path}\n`;
+  
+  fs.appendFile('log.txt', logEntry, (err) => {
+    if (err) {
+      console.error('Error writing log:', err);
+    }
+    if (callback) callback();
+  });
+}
+
+const routes = {
+  'GET': {
+    '/': (socket, req) => {
+      sendResponse(socket, 200, 'OK', 'Welcome to Homepage!');
+    },
+    
+    '/about': (socket, req) => {
+      const name = req.query.myname || 'Guest';
+      sendResponse(socket, 200, 'OK', `Hey, I am ${name}`);
+    },
+    
+    '/Signup': (socket, req) => {
+      const html = `
+        <html>
+          <body>
+            <h1>Sign Up Form</h1>
+            <form method="POST" action="/signup">
+              <input type="text" name="username" placeholder="Username" required>
+              <input type="email" name="email" placeholder="Email" required>
+              <input type="password" name="password" placeholder="Password" required>
+              <button type="submit">Sign Up</button>
+            </form>
+          </body>
+        </html>
+      `;
+      sendResponse(socket, 200, 'OK', html, 'text/html');
+    }
+  },
+  
+  'POST': {
+    '/Signup': (socket, req) => {
+  
+      const formData = req.body
+        .split('&')
+        .reduce((acc, pair) => {
+          const [key, value] = pair.split('=');
+          acc[decodeURIComponent(key)] = decodeURIComponent(value);
+          return acc;
+        }, {});
+      
+      console.log('Form Data Received:', formData);
+      sendResponse(socket, 200, 'OK', 'Sign up successful!');
+    }
+  },
+  
+  'PUT': {
+    '/update': (socket, req) => {
+      sendResponse(socket, 200, 'OK', 'Data Updated Successfully');
+    }
+  },
+  
+  'PATCH': {
+    '/modify': (socket, req) => {
+      sendResponse(socket, 200, 'OK', 'Data Modified Successfully');
+    }
+  },
+  
+  'DELETE': {
+    '/delete': (socket, req) => {
+      sendResponse(socket, 200, 'OK', 'Data Deleted Successfully');
+    }
+  }
+};
+
+const server = net.createServer((socket) => {
+  let rawRequest = '';
+  const contentLengthHeader = socket.headers ? socket.headers['content-length'] : 0;
+  
+
+  socket.on('data', (chunk) => {
+    rawRequest += chunk.toString('utf8');
+    
+    
+    const headerEndIndex = rawRequest.indexOf('\r\n\r\n');
+    
+    if (headerEndIndex !== -1) {
+  
+      let parsedRequest;
+      try {
+        parsedRequest = parseHttpRequest(rawRequest);
+      } catch (error) {
+        console.error('Parse error:', error);
+        sendResponse(socket, 400, 'Bad Request', 'Invalid HTTP Request');
+        socket.end();
+        return;
+      }
+      
+      logRequest(parsedRequest.method, parsedRequest.path, () => {
+        console.log(`${parsedRequest.method} ${parsedRequest.path}`);
+      });
+      
+  
+      const routeHandler = routes[parsedRequest.method] && 
+                          routes[parsedRequest.method][parsedRequest.path];
+      
+      if (routeHandler) {
+        
+        routeHandler(socket, parsedRequest);
+      } else {
+      
+        sendResponse(socket, 404, 'Not Found', '404 - Page Not Found');
+      }
+      
+     
+      socket.end();
+    }
+  });
+  
+  socket.on('error', (err) => {
+    console.error('Socket error:', err);
+    socket.end();
+  });
+  
+  socket.on('end', () => {
+    console.log('Client disconnected');
+  });
+});
+
+
+
+server.listen(PORT, () => {
+  console.log(`\n HTTP Server running at http://localhost:${PORT}`);
+  console.log('Available Routes:');
+  console.log('  GET  /');
+  console.log('  GET  /about?name=YourName');
+  console.log('  GET  /signup');
+  console.log('  POST /signup');
+  console.log('  PUT  /update');
+  console.log('  PATCH /modify');
+  console.log('  DELETE /delete\n');
+});
+
+server.on('error', (err) => {
+  console.error('Server error:', err);
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use`);
+  }
+});
+
+process.on('SIGINT', () => {
+  console.log('\nShutting down server...');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
